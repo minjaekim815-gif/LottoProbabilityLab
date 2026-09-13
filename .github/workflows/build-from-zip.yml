@@ -10,24 +10,24 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
+      - name: Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
 
-      - name: Set up Android SDK
+      - name: Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK packages
+      - name: Install SDK 36
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-36" "build-tools;36.0.0"
@@ -39,12 +39,43 @@ jobs:
           PROJECT_DIR=$(dirname "$(find extracted -name settings.gradle.kts -print -quit)")
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      - name: Adjust SDK version for CI
+      - name: Fix dependencies for API 36
         run: |
           sed -i 's/compileSdk = 37/compileSdk = 36/g' "$PROJECT_DIR/app/build.gradle.kts"
           sed -i 's/targetSdk = 37/targetSdk = 36/g' "$PROJECT_DIR/app/build.gradle.kts"
 
-      - name: Build Debug APK
+          sed -i 's/compose-bom:2026.08.00/compose-bom:2025.08.00/g' "$PROJECT_DIR/app/build.gradle.kts"
+          sed -i 's/core-ktx:1.18.0/core-ktx:1.17.0/g' "$PROJECT_DIR/app/build.gradle.kts"
+          sed -i 's/activity-compose:1.13.0/activity-compose:1.11.0/g' "$PROJECT_DIR/app/build.gradle.kts"
+          sed -i 's/lifecycle-runtime-ktx:2.10.0/lifecycle-runtime-ktx:2.9.3/g' "$PROJECT_DIR/app/build.gradle.kts"
+
+      - name: Fix Kotlin UI source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("${{ env.PROJECT_DIR }}/app/src/main/java/com/example/lottoprobabilitylab/MainActivity.kt")
+          s = p.read_text()
+
+          s = s.replace(
+              "@Composable\nfun LottoApp()",
+              "@OptIn(ExperimentalMaterial3Api::class)\n@Composable\nfun LottoApp()"
+          )
+
+          s = s.replace(
+              "items(r.combinations.zipWithIndex()) { (candidate, index) ->",
+              "items(r.combinations.withIndex().toList()) { (index, candidate) ->"
+          )
+
+          s = s.replace(
+              "items(result.combinations.zipWithIndex()) { (candidate, index) ->",
+              "items(result.combinations.withIndex().toList()) { (index, candidate) ->"
+          )
+
+          p.write_text(s)
+          PY
+
+      - name: Build APK
         run: |
           cd "$PROJECT_DIR"
           gradle :app:assembleDebug --stacktrace
